@@ -1,0 +1,244 @@
+---
+title: "etcd教程(十一)---etcd 事务初体验"
+description: "etcd 事务特性"
+date: 2021-12-24
+draft: false
+categories: ["etcd"]
+tags: ["etcd"]
+---
+
+本文主要记录了 etcd 事务API 以及 ACID 特性的大致实现。
+
+<!--more-->
+
+## 1. 事务 API
+
+### 概述
+
+以 Alice 向 Bob 转账为例：
+
+Alice 给 Bob 转账 100 元，Alice 账号减少 100，Bob 账号增加 100，这涉及到**多个 key 的原子更新**。
+
+在 etcd v2 的时候， etcd 提供了**CAS（Compare and swap）**，然而其只支持单 key，不支持多 key，因此无法满足类似转账场景的需求。严格意义上说 CAS 称不上事务，无法实现事务的各个隔离级别。
+
+etcd v3 为了解决多 key 的原子操作问题，提供了全新**迷你事务 API**，同时基于 MVCC 版本号，它可以实现各种隔离级别的事务。它的基本结构如下：
+
+```sh
+client.Txn(ctx).If(cmp1, cmp2, ...).Then(op1, op2, ...,).Else(op1, op2, …)
+```
+
+**事务 API 由 If 语句、Then 语句、Else 语句组成**
+
+它的基本原理是，在 If 语句中，你可以添加一系列的条件表达式，若条件表达式全部通过检查，则执行 Then 语句的 get/put/delete 等操作，否则执行 Else 的 get/put/delete 等操作。
+
+If 语句中的支持项如下：
+
+* 1）**key 的最近一次修改版本号 mod_revision，简称 mod**，可以用于检查 key 最近一次被修改时的版本号是否符合你的预期。
+  * 比如当你查询到 Alice 账号资金为 100 元时，它的 mod_revision 是 v1，当你发起转账操作时，你得确保 Alice 账号上的 100 元未被挪用，这就可以通过 `mod("Alice") = "v1"` 条件表达式来保障转账安全性。
+* 2）**key 的创建版本号 create_revision，简称 create**,可以用于检测 key 是否已存在。
+  * 比如在分布式锁场景里，只有分布式锁 key(lock) 不存在的时候，你才能发起 put 操作创建锁，这时你可以通过` create("lock") = "0"`来判断，因为一个 key 不存在的话它的 create_revision 版本号就是 0。
+* 3） **key 的修改次数 version**；可以用于检查 key 的修改次数是否符合预期。
+  * 比如你期望 key 在修改次数小于 3 时，才能发起某些操作时，可以通过 version("key") < "3"来判断。
+* 4）**key 的值**，可以用于检查 key 的 value 值是否符合预期。
+  * 比如期望 Alice 的账号资金为 200, `value("Alice") = "200"`。
+
+If 语句通过以上 MVCC 版本号、value 值、各种比较运算符 (等于、大于、小于、不等于)，实现了灵活的比较的功能，满足你各类业务场景诉求。
+
+
+
+### 示例
+
+下面是使用 etcdctl 的 txn 事务命令，基于以上介绍的特性，初步实现的一个 Alice 向 Bob 转账 100 元的事务：
+
+```sh
+# 指定使用 etcd v3 api
+$ export ETCDCTL_API=3
+// -i 交互式事务
+$ etcdctl txn -i
+compares: //对应If语句
+value("Alice") = "200" //判断Alice账号资金是否为200
+
+
+success requests (get, put, del): //对应Then语句
+put Alice 100 //Alice账号初始资金200减100
+put Bob 300 //Bob账号初始资金200加100
+
+
+failure requests (get, put, del): //对应Else语句
+get Alice  
+get Bob
+
+
+SUCCESS //If语句检测通过
+
+OK // Then 中的语句1执行成功
+OK // Then 中的语句1执行成功
+```
+
+
+
+## 2. ACID 特性
+
+ACID 是衡量事务的四个特性，由原子性（Atomicity）、一致性（Consistency）、隔离性（Isolation）、持久性（Durability）组成。
+
+其他数据库的 ACID 实现可以看这篇文章：[MySQL教程(十)---MySQL ACID 实现原理](https://www.lixueduan.com/post/mysql/10-acid/)。
+
+
+
+### 原子性与持久性
+
+事务的原子性（Atomicity）是指在一个事务中，所有请求要么同时成功，要么同时失败。
+
+> 比如在我们的转账案例中，是绝对无法容忍 Alice 账号扣款成功，但是 Bob 账号资金到账失败的场景。
+
+持久性（Durability）是指事务一旦提交，其所做的修改会永久保存在数据库。
+
+软件系统在运行过程中会遇到各种各样的软硬件故障，如果 etcd 在执行上面事务过程中，刚执行完扣款命令（put Alice 100）就突然 crash 了，它是如何保证转账事务的原子性与持久性的呢？
+
+
+
+![etcd-v3-txn-commit][etcd-v3-txn-commit]
+
+**T1 时间点**只是将修改写入到了内存，并未持久化。 crash 后事务并未成功执行和持久化任意数据到磁盘上。在节点重启时，etcd  server 会重放 WAL 中的已提交日志条目，再次执行以上转账事务。
+
+**T2 时间点**则是写入内存完成后，持久化到磁盘时 crash。我们知道 consistent index 字段值是和 key-value 数据在一个 boltdb 事务里同时持久化到磁盘中的，所以持久化失败后者两个值也没能更新成功，那么当节点重启，etcd  server 重放 WAL 中已提交日志条目时，同样会再次应用转账事务到状态机中，因此事务的原子性和持久化依然能得到保证。
+
+> 会不会部分数据提交成功，部分数据提交失败呢？
+
+
+
+### 一致性
+
+* 分布式系统中多副本数据一致性，它是指各个副本之间的数据是否一致，比如 Redis 的主备是异步复制的，那么它的一致性是最终一致性的。
+* CAP 原理中的一致性是指可线性化。核心原理是虽然整个系统是由多副本组成，但是通过线性化能力支持，对 client 而言就如一个副本，应用程序无需关心系统有多少个副本。
+* 一致性哈希，它是一种分布式系统中的数据分片算法，具备良好的分散性、平衡性。
+* 事务中的一致性，它是指事务变更前后，数据库必须满足若干恒等条件的状态约束
+
+**一致性往往是由数据库和业务程序两方面来保障的**。
+
+在本例中，转账系统内的各账号资金总额，在转账前后应该一致，同时各账号资产不能小于 0。
+
+* 一方面，业务程序在转账逻辑里面，需检查转账者资产大于等于转账金额。在事务提交时，通过账号资产的版本号，确保双方账号资产未被其他事务修改。
+* 另一方面，etcd 会通过 WAL 日志和 consistent index、boltdb 事务特性，去确保事务的原子性，因此不会有部分成功部分失败的操作，导致资金凭空消失、新增。
+
+
+
+### 隔离性
+
+常见的事务隔离级别有以下四种：
+
+* **未提交读（Read UnCommitted）**，也就是一个 client 能读取到未提交的事务。
+* **已提交读（Read Committed）**，指的是只能读取到已经提交的事务数据，但是存在不可重复读的问题。
+* **可重复读（Repeated Read）**，它是指在一个事务中，同一个读操作 get Alice/Bob 在事务的任意时刻都能得到同样的结果，其他修改事务提交后也不会影响你本事务所看到的结果。
+* **串行化（Serializable）**，它是最高的事务隔离级别，读写相互阻塞，通过牺牲并发能力、串行化来解决事务并发更新过程中的隔离问题。
+
+为了优化性能，在基于 MVCC 机制实现的各个数据库系统中，提供了一个名为“可串行化的快照隔离”级别，相比悲观锁而言，它是一种乐观并发控制，通过快照技术实现的类似串行化的效果，事务提交时能检查是否冲突。
+
+**未提交读**
+
+由于 etcd 是批量提交写事务的，而读事务又是快照读，因此当 MVCC 写事务完成时，它需要更新 buffer，这样下一个读请求到达时，才能从 buffer 中获取到最新数据。所以不会出现问题。
+
+**已提交读、可重复读**
+
+比未提交读隔离级别更高的是已提交读，它是指在事务中能读取到已提交数据，但是存在不可重复读的问题。已提交读，也就是说你每次读操作，若未增加任何版本号限制，默认都是当前读，etcd 会返回最新已提交的事务结果给你。
+
+*那么如何实现可重复读呢？*
+
+你可以通过 MVCC 快照读，或者参考 etcd 的事务框架 STM 实现，它在事务中维护一个读缓存，优先从读缓存中查找，不存在则从 etcd 查询并更新到缓存中，这样事务中后续读请求都可从缓存中查找，确保了可重复读。
+
+**串行化快照隔离**
+
+串行化快照隔离是最严格的事务隔离级别，它是指在在事务刚开始时，首先获取 etcd 当前的版本号 rev，事务中后续发出的读请求都带上这个版本号 rev，告诉 etcd 你需要获取那个时间点的快照数据，etcd 的 MVCC 机制就能确保事务中能读取到同一时刻的数据。
+
+**同时，它还要确保事务提交时，你读写的数据都是最新的，未被其他人修改，也就是要增加冲突检测机制**。
+
+
+
+### 示例
+
+到此可以发现之前的 demo 其实存在一些问题，它缺少了完整事务的冲突检测机制。
+
+修改版如下：
+
+首先你可通过一个事务获取 Alice 和 Bob 账号的上资金和版本号，用以判断 Alice 是否有足够的金额转账给 Bob 和事务提交时做冲突检测:
+
+```sh
+$ etcdctl txn -i -w=json
+compares:
+
+
+success requests (get, put, del):
+get Alice
+get Bob
+
+
+failure requests (get, put, del):
+
+
+{
+ "kvs":[
+      {
+          "key":"QWxpY2U=",
+          "create_revision":2,
+          "mod_revision":2,
+          "version":1,
+          "value":"MjAw"
+      }
+  ],
+    ......
+  "kvs":[
+      {
+          "key":"Qm9i",
+          "create_revision":3,
+          "mod_revision":3,
+          "version":1,
+          "value":"MzAw"
+      }
+  ],
+}
+```
+
+其次发起资金转账操作，Alice 账号减去 100，Bob 账号增加 100。为了保证转账事务的准确性、一致性，提交事务的时候需检查 Alice 和 Bob 账号最新修改版本号与读取资金时的一致 (compares 操作中增加版本号检测)，以保证其他事务未修改两个账号的资金。
+
+```sh
+$ etcdctl txn -i
+compares:
+mod("Alice") = "2"
+mod("Bob") = "3"
+
+
+success requests (get, put, del):
+put Alice 100
+put Bob 300
+
+
+failure requests (get, put, del):
+get Alice
+get Bob
+
+
+SUCCESS
+
+
+OK
+
+OK
+```
+
+
+
+## 3. 小结 
+
+* 1）事务 API 的基本结构，它由 If、Then、Else 语句组成。
+* 2）其中 If 支持多个比较规则，它是用于事务提交时的冲突检测，比较的对象支持 key 的 mod_revision、create_revision、version、value 值。
+* 3）etcd 事务的 ACID 特性
+  * 原子性，持久性：主要依靠 WAL + consistent index + blotdb，crash 后会根据 wal 重放保证数据不丢失
+  * 隔离性：主要依靠 MVCC
+  * 一致性：事务追求的最终目标，一致性的实现既需要数据库层面的保障，也需要应用层面的保障
+
+
+
+
+
+
+[etcd-v3-txn-commit]: https://github.com/lixd/blog/raw/master/images/etcd/txn/etcd-v3-txn-commit.webp

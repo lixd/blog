@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Canvas 指纹 Demo</title>
+</head>
+<body>
+<canvas id="myCanvas"></canvas>
+<div id="crc32"></div>
+<script src="fp.js"></script>
+<script>
+  const canvasFP = GenerateCanvasFP()
+  document.getElementById("crc32").innerHTML = "CRC32:   " + canvasFP
+</script>
+</body>
+</html>

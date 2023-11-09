@@ -1,0 +1,126 @@
+baseURL = "https://www.lixueduan.com"
+languageCode = "zh-CN"
+title = "指月小筑|意琦行的个人博客"
+theme = "maupassant"
+## googleAnalytics代码 格式:UA-XXXXXXXX-X
+googleAnalytics = "UA-131397277-1"
+## 是否禁止URL Path转小写
+disablePathToLower = true
+## 开启后自动检测内容中的中文(C)/日语(J)/韩语(K)。
+hasCJKLanguage = true
+## 摘要字数
+summaryLength = 140
+
+[author]
+  name = "意琦行"
+
+[params]
+  author = "意琦行"
+  subtitle = "勿在浮沙筑高台"
+  keywords = "Golang,Kubernetes,Docker,分布式,意琦行"
+  description = "指月小筑是意琦行（李学端）的技术分享博客。内容涵盖 Golang 后端技术、Kubernetes、Docker、MySQL、分布式,微服务,并发编程相关的研究与知识分享。"
+  busuanzi = true #启用不算子网页统计
+  googleAd = "ca-pub-7693630257897132"  #谷歌广告ca-pub-xxxxxxxxxxxxxx
+  # hm.src = "https://hm.baidu.com/hm.js?2765db46fe986fa867d3cb9e87afdd69";
+  baiduAnalytics = "2765db46fe986fa867d3cb9e87afdd69" #百度统计
+  localSearch = true # 启用本地搜索
+  icp = "渝ICP备20005680号-1"
+  # 公网安备
+  is = "渝公网安备 50010302002842号"
+  # 备案编号图标url
+  isp = "https://www.lixueduan.com/is.png"
+  github = "https://github.com/lixd"
+
+  # 这里我存放在了主题的static文件夹里，根目录的似乎也可以
+ # customCSS = ['douban.css', 'other.css']
+  # if ['custom.css'], load '/static/css/custom.css' file
+ # customJS = ['douban.js']
+  # if ['custom.js'], load '/static/js/custom.js' file
+
+  # 是否开启目录全局开关，你也可以在每一篇内容的 front matter 中针对单篇内容关闭或开启某些功能
+  toc = true  # 是否开启目录
+
+
+## 友情链接，可以多个
+[[params.links]]
+  #title = "VAPTCHA"
+  #name = "智能手势验证码"
+  #url = "https://www.vaptcha.com/"
+
+
+## 侧边栏广告位
+#[[params.ads]]
+ # title = "【2019双12】ALL IN CLoud 低至1折"
+ # url = "https://www.aliyun.com/minisite/goods?userCode=jdg9oj97&share_source=copy_link"
+ # img = "https://img.alicdn.com/tfs/TB1_rYHo7P2gK0jSZPxXXacQpXa-690-388.jpg"
+
+## 是否开启disqus评论，不要和utteranc同时开启
+#disqusShortname = "yourdiscussshortname" 
+## 配置 utteranc评论,教程参考 https://utteranc.es/
+#[params.utteranc]
+ # enable = true
+  #repo = "illusorycloud/blog-comments" # 存储评论的Repo，格式为 owner/repo
+  #issueTerm = "pathname" #表示你选择以那种方式让github issue的评论和你的文章关联。 `pathname` 以路径的方式，推荐选项，这样你换域名的时候就不用担心评论找不到了(推荐) `url` 全链接URL路径的方式。 `title` 按页面title标题的方式。
+  #theme = "github-light"  # 样式主题，有github-light和github-dark两种
+
+## 开启版权声明，协议名字和链接都可以换
+[params.cc]
+    name = "知识共享署名-非商业性使用-禁止演绎 4.0 国际许可协议"
+    link = "https://creativecommons.org/licenses/by-nc-nd/4.0/"
+
+## 配置代码高亮
+[markup]
+  #defaultMarkdownHandler = 'goldmark'
+  #defaultMarkdownHandler = "blackfriday"
+  [markup.highlight]
+    codeFences = true
+    guessSyntax = true
+    hl_Lines = ""
+    lineNoStart = 1
+    lineNos = true
+    lineNumbersInTable = true
+    tabWidth = 4
+    noClasses = true
+    style = "monokailight" # 常用:github monokailight monokai xcode vs perldoc autumn 所有style:https://xyproto.github.io/splash/docs/all.html
+  [markup.blackFriday]
+    angledQuotes = false
+    footnoteAnchorPrefix = ''
+    footnoteReturnLinkContents = ''
+    fractions = true
+    hrefTargetBlank = true # 新页面打开链接
+    latexDashes = true
+    nofollowLinks = true # 外链添加nofollow标记
+    noreferrerLinks = false
+    plainIDAnchors = true
+    skipHTML = false
+    smartDashes = true
+    smartypants = true
+    smartypantsQuotesNBSP = false
+    taskLists = true
+
+## 配置网站菜单
+[menu]
+
+  [[menu.main]]
+    identifier = "categories"
+    name = "分类"
+    url = "/categories/"
+    weight = 2
+
+  [[menu.main]]
+    identifier = "tags"
+    name = "标签"
+    url = "/tags/"
+    weight = 2
+
+  [[menu.main]]
+    identifier = "archives"
+    name = "归档"
+    url = "/archives/"
+    weight = 3
+
+  [[menu.main]]
+    identifier = "about"
+    name = "关于"
+    url = "/about/"
+    weight = 4
